@@ -7,6 +7,7 @@ import com.eastrobot.doc.config.BaseController;
 import com.eastrobot.doc.config.SystemConstants;
 import com.eastrobot.doc.config.WebappContext;
 import com.eastrobot.doc.util.HtmlUtils;
+
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
@@ -33,6 +34,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.FileCopyUtils;
 import org.springframework.util.ResourceUtils;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -91,35 +93,26 @@ public class IndexController extends BaseController {
 	 */
 	@ApiOperation(value="根据指定的文件名称获取文件内容", notes="返回文件内容会自动过滤图片信息")
 	@ApiImplicitParams({
-		@ApiImplicitParam(name="name", value="文件相对路径", required=true, dataType="String")
+		@ApiImplicitParam(name="name", value="文件相对路径", required=true, dataType="String", paramType="form")
 	})
-	@RequestMapping(value="loadFileData", produces="text/plain;charset=utf-8", method=RequestMethod.POST)
-	public String loadFileData(String name, HttpServletRequest request) throws FileNotFoundException, IOException{
-		File file = ResourceUtils.getFile("classpath:static/DATAS/" + name);
-		String basename = FilenameUtils.getBaseName(file.getName());
-		File targetFile = new File(file.getParent() + "/" + basename + "/" + basename + "." + outputExtension);
-		if (targetFile.exists()){
-			//logger.debug(HtmlUtils.getFileEncoding(targetFile));
-			String data = IOUtils.toString(new FileInputStream(targetFile), HtmlUtils.getFileEncoding(targetFile));
-			//logger.debug(data);
-			//获取文件头部，每个文件转换出的html头部样式都不一样，动态获取
-			//截图 <BODY 之前的所有代码
-			String header = HtmlUtils.HEAD_TEMPLATE;
-			try{
-				header = data.substring(0, data.toLowerCase().indexOf("<body"));
-				String tmp = data.substring(data.toLowerCase().indexOf("<body"));
-				header += tmp.substring(0, tmp.indexOf(">") + 1);
-				header = HtmlUtils.replaceCharset(header);
-			}catch(StringIndexOutOfBoundsException e){
-				e.printStackTrace();
-				logger.error("html页面数据解析异常");
+	@RequestMapping(value="loadFileData", produces="text/plain;charset=utf-8", method=RequestMethod.POST, consumes="application/x-www-form-urlencoded")
+	public String loadFileData(@RequestParam("name") String name) throws FileNotFoundException, IOException{
+		try {
+			File file = ResourceUtils.getFile("classpath:static/DATAS/" + name);
+			String basename = FilenameUtils.getBaseName(file.getName());
+			File targetFile = new File(file.getParent() + "/" + basename + "/" + basename + "." + outputExtension);
+			if (targetFile.exists()){
+				String data = IOUtils.toString(new FileInputStream(targetFile), HtmlUtils.getFileEncoding(targetFile));
+				data = HtmlUtils.replaceCharset(data);
+				
+				//TODO 如果是网络图片，如何处理？
+				//TODO 保存后再次打开html文档，如何处理？
+				//data = HtmlUtils.replaceHtmlTag(data, "img", "src", "src=\"" + request.getContextPath() + "/index/loadFileImg?name=" + name + "&imgname=", "\"");
+				return data;
 			}
-			
-			request.getSession().setAttribute(SystemConstants.HTML_HEADER, header);
-			//TODO 如果是网络图片，如何处理？
-			//TODO 保存后再次打开html文档，如何处理？
-			//data = HtmlUtils.replaceHtmlTag(data, "img", "src", "src=\"" + request.getContextPath() + "/index/loadFileImg?name=" + name + "&imgname=", "\"");
-			return data;
+		} catch (Exception e) {
+			// 大概是文件不存在
+			e.printStackTrace();
 		}
 		return "";
 	}
@@ -153,6 +146,7 @@ public class IndexController extends BaseController {
 		} 
 		return null;
 	}
+	
 	/**
 	 * 上传文件
 	 * @author eko.zhan at 2017年8月9日 下午8:32:39
@@ -162,7 +156,7 @@ public class IndexController extends BaseController {
 	 */
 	@ApiOperation(value="上传文件", notes="")
 	@ApiImplicitParams({
-		@ApiImplicitParam(name="uploadFile", value="待上传的文件", required=true, dataType="MultipartFile")
+		@ApiImplicitParam(name="uploadFile", value="待上传的文件", required=true, dataType="__file")
 	})
 	@RequestMapping(value="uploadData", method=RequestMethod.POST)
 	public JSONObject uploadData(@RequestParam("uploadFile") MultipartFile uploadFile, HttpServletRequest request){
@@ -177,12 +171,16 @@ public class IndexController extends BaseController {
 			String inputFilename = String.valueOf(Calendar.getInstance().getTimeInMillis());
 			File file = new File(targetDir.getAbsolutePath() + "/" + inputFilename + "." + inputExtension);
 			FileCopyUtils.copy(uploadFile.getBytes(), file);
-			
 			File outputFile = new File(targetDir.getAbsolutePath() + "/" + inputFilename + "/" + inputFilename + "." + outputExtension);
+			
 			try {
 	        	long startTime = System.currentTimeMillis();
 	        	converter.convert(file, outputFile);
 	        	long conversionTime = System.currentTimeMillis() - startTime;
+
+				// 增加返回文件名
+				json.put("name", inputFilename + "." + inputExtension);
+	        	
 	        	logger.info(String.format("successful conversion: %s [%db] to %s in %dms", inputExtension, file.length(), outputExtension, conversionTime));
 	        } catch (Exception e) {
 	            logger.error(String.format("failed conversion: %s [%db] to %s; %s; input file: %s", inputExtension, file.length(), outputExtension, e, file.getName()));
@@ -207,11 +205,11 @@ public class IndexController extends BaseController {
 	 */
 	@ApiOperation(value="保存文件", notes="")
 	@ApiImplicitParams({
-		@ApiImplicitParam(name="name", value="文件相对路径", required=true, dataType="String"),
-		@ApiImplicitParam(name="data", value="文件内容", required=true, dataType="String")
+		@ApiImplicitParam(name="name", value="文件相对路径", required=true, dataType="String", paramType="form"),
+		@ApiImplicitParam(name="data", value="文件内容", required=true, dataType="String", paramType="form")
 	})
-	@RequestMapping(value="saveFileData", method=RequestMethod.POST)
-	public JSONObject saveFileData(String name, String data, HttpServletRequest request){
+	@RequestMapping(value="saveFileData", method=RequestMethod.POST, consumes="application/x-www-form-urlencoded")
+	public JSONObject saveFileData(@RequestParam("name") String name, @RequestParam("data") String data, HttpServletRequest request){
 		//TODO 这是一个伪保存，只是修改了 HTML 内容，并未修改 file 文件，如果用户单击下载，依然会存在问题
 		//TODO 如果用户修改了图片，如何处理？
 		JSONObject json = new JSONObject();
@@ -220,16 +218,17 @@ public class IndexController extends BaseController {
 			//DONE 优化底层 DefaultDocumentFormatRegistry.java 后可实现html转docx
 			//boolean is07Xml = false; //是否是07以后的文档（docx/xlsx/pptx/），如果是，需要将html转成97版本的office文件，再从97转成07，直接将html转成07存在问题
 			File file = ResourceUtils.getFile("classpath:static/DATAS/" + name);
-			File newFile = new File(file.getParent() + "/" + Calendar.getInstance().getTimeInMillis() + "_" + name);
+			String newFileName = file.getParent() + "/" + Calendar.getInstance().getTimeInMillis() + "_" + name;
 			if (!name.toLowerCase().endsWith("x")){
-				newFile = new File(file.getParent() + "/" + Calendar.getInstance().getTimeInMillis() + "_" + name + "x");
+				newFileName = file.getParent() + "/" + Calendar.getInstance().getTimeInMillis() + "_" + name + "x";
 			}
+			File newFile = new File(newFileName);
 			String basename = FilenameUtils.getBaseName(file.getName());
 			File targetFile = new File(file.getParent() + "/" + basename + "/" + basename + "." + outputExtension);
 			if (targetFile.exists()){
 				//将html中的body内容替换为当前 data 数据
 				//String htmlData = IOUtils.toString(new FileInputStream(targetFile), HtmlUtils.getFileEncoding(targetFile));
-				String htmlData = (String)request.getSession().getAttribute(SystemConstants.HTML_HEADER) + data + HtmlUtils.FOOT_TEMPLATE;
+				String htmlData = HtmlUtils.HEAD_TEMPLATE + HtmlUtils.getBodyContent(data) + HtmlUtils.FOOT_TEMPLATE;
 				//DONE 如何处理文件编码？保存后尽管通过请求能访问中文内容，但是直接磁盘双击html文件显示乱码
 				//add by eko.zhan at 2017-08-11 14:55 解决方案：重写Html头，编码修改为 utf-8
 				//IOUtils.write(htmlData.getBytes(HtmlUtils.UTF8), new FileOutputStream(targetFile));
@@ -257,10 +256,10 @@ public class IndexController extends BaseController {
 	 */
 	@ApiOperation(value="删除文件", notes="")
 	@ApiImplicitParams({
-		@ApiImplicitParam(name="name", value="文件相对路径", required=true, dataType="String")
+		@ApiImplicitParam(name="name", value="文件相对路径", required=true, dataType="String", paramType="form")
 	})
-	@RequestMapping(value="delete", method=RequestMethod.POST)
-	public JSONObject delete(String name){
+	@RequestMapping(value="delete", method=RequestMethod.POST, consumes="application/x-www-form-urlencoded")
+	public JSONObject delete(@RequestParam("name") String name){
 		//TODO windows操作系统上如果html文件被占用则无法删除，是否可以用 File.creteTempFile 来解决？
 		JSONObject json = new JSONObject();
 		json.put("result", 1);

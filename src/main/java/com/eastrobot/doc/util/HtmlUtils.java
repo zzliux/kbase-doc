@@ -19,6 +19,16 @@ import org.mozilla.universalchardet.UniversalDetector;
  */
 public class HtmlUtils {
 	
+	/**
+     * 中文常用字符集
+     */
+	public static final String[] AVAILABLE_CHINESE_CHARSET_NAMES = new String[] { "GBK", "GB2312", "GB18030", "UTF-8", "BIG5" };
+	
+	/**
+     * 中文常用字
+     */
+    private static final Pattern CHINESE_COMMON_CHARACTER_PATTERN = Pattern.compile("的|一|是|了|我|不|人|在|他|有|这|个|上|们|来|到|时|大|地|为|子|中|你|说|生|国|年|着|就|那|和|要");
+	
 	public static final String UTF8 = "UTF-8";
 	
 	//TODO 是否有思考 excel 和 ppt 转换后的头部？
@@ -80,21 +90,53 @@ public class HtmlUtils {
 	 * @return
 	 */
 	public static String replaceCharset(String data){
-		return StringUtils.replaceAll(data, "(?i)CONTENT=\"text/html; charset=gb2312\"", "CONTENT=\"text/html; charset=utf-8\"");
+		return StringUtils.replaceAll(data, "(?i)CONTENT=\"text/html; +?charset=.+?\"", "CONTENT=\"text/html; charset=utf-8\"");
 	}
 	
 	/**
 	 * 获取文件编码
+	 * 
 	 * @author eko.zhan at Jul 3, 2017 1:54:50 PM
 	 * @param file
 	 * @return
-	 * @throws IOException 
+	 * @throws IOException
 	 */
-	public static String getFileEncoding(File file) throws IOException{
-		UniversalDetector detector = new UniversalDetector(null);
+	public static String getFileEncoding(File file) throws IOException {
+
+		String charset = null;
 		byte[] bytes = FileUtils.readFileToByteArray(file);
-		detector.handleData(bytes, 0, bytes.length);
-		detector.dataEnd();
-		return detector.getDetectedCharset();
+
+		int longestMatch = 0;
+		for (String cs : AVAILABLE_CHINESE_CHARSET_NAMES) {
+			String temp = new String(bytes, cs);
+			Matcher matcher = CHINESE_COMMON_CHARACTER_PATTERN.matcher(temp);
+
+			int count = 0;
+			while (matcher.find()) {
+				count += 1;
+			}
+			if (count > longestMatch) {
+				longestMatch = count;
+				charset = cs;
+			}
+		}
+
+		if (null == charset) {
+			UniversalDetector detector = new UniversalDetector(null);
+			detector.handleData(bytes, 0, bytes.length);
+			detector.dataEnd();
+			charset = detector.getDetectedCharset();
+		}
+
+		return charset;
+	}
+	
+	/**
+	 * 获取html中body标签下的内容
+	 * @param data
+	 * @return
+	 */
+	public static String getBodyContent(String data) {
+		return data.replaceAll("(?i)^[\\s\\S]+?<BODY[\\s\\S]+?>|</BODY[\\s\\S]+?$", "");
 	}
 }
